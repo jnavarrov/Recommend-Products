@@ -1,0 +1,79 @@
+Launch Dataproc
+To launch Dataproc and configure it so that each of the machines in the cluster can access Cloud SQL:
+
+In the GCP Console, on the Navigation menu (Navigation menu), click SQL and note the region of your Cloud SQL instance
+In the snapshot above, the region is us-central1.
+In the GCP Console, on the Navigation menu (Navigation menu), click Dataproc and click Enable API if prompted.
+Once enabled, click Create cluster and name your cluster rentals
+Select Region as global and change the Zone to us-central1-a (in the same zone as your Cloud SQL instance). This will minimize network latency between the cluster and the database.
+For Master node, for Machine type, select 2 vCPUs (n1-standard-2).
+For Worker nodes, for Machine type, select 2 vCPUs (n1-standard-2).
+Leave all other values with their default and click Create. It will take 1-2 minutes to provision your cluster.
+Note the Name, Zone and Total worker nodes in your cluster.
+Copy and paste the below bash script into Cloud Shell (optionally change CLUSTER, ZONE, NWORKERS if necessary before running)
+
+echo "Authorizing Cloud Dataproc to connect with Cloud SQL"
+CLUSTER=rentals
+CLOUDSQL=rentals
+ZONE=us-central1-a
+NWORKERS=2
+
+machines="$CLUSTER-m"
+for w in `seq 0 $(($NWORKERS - 1))`; do
+   machines="$machines $CLUSTER-w-$w"
+done
+
+echo "Machines to authorize: $machines in $ZONE ... finding their IP addresses"
+ips=""
+for machine in $machines; do
+    IP_ADDRESS=$(gcloud compute instances describe $machine --zone=$ZONE --format='value(networkInterfaces.accessConfigs[].natIP)' | sed "s/\['//g" | sed "s/'\]//g" )/32
+    echo "IP address of $machine is $IP_ADDRESS"
+    if [ -z  $ips ]; then
+       ips=$IP_ADDRESS
+    else
+       ips="$ips,$IP_ADDRESS"
+    fi
+done
+
+echo "Authorizing [$ips] to access cloudsql=$CLOUDSQL"
+gcloud sql instances patch $CLOUDSQL --authorized-networks $ips
+
+Hit enter then, when prompted, type Y, then enter again to continue
+on the main Cloud SQL page, under Connect to this instance copy your Public IP Address
+
+Run ML model
+To create a trained model and apply it to all the users in the system:
+Data science team has created a recommendation model using Spark written in Python. Let's copy it over into the staging bucket.
+Copy over the model code by executing the below in Cloud Shell
+
+gsutil cp gs://cloud-training/bdml/v2.0/model/train_and_apply.py train_and_apply.py
+cloudshell edit train_and_apply.py
+
+When prompted, select Open in Editor
+Wait for the Editor UI to load
+In train_and_apply.py, find CLOUDSQL_INSTANCE_IP and paste the Cloud SQL IP address copied earlier
+
+# MAKE EDITS HERE
+CLOUDSQL_INSTANCE_IP = '<paste-your-cloud-sql-ip-here>'   # <---- CHANGE (database server IP)
+CLOUDSQL_DB_NAME = 'recommendation_spark' # <--- leave as-is
+CLOUDSQL_USER = 'root'  # <--- leave as-is
+CLOUDSQL_PWD  = '<type-your-cloud-sql-password-here>'  # <---- CHANGE
+
+Find CLOUDSQL_PWD and type in a Cloud SQL password
+
+From the Cloud Shell ribbon, click on the Open Terminal icon and copy this file to your Cloud Storage bucket using this Cloud Shell command:
+gsutil cp train_and_apply.py gs://$DEVSHELL_PROJECT_ID
+
+Run your ML job on Dataproc
+1. In the Dataproc console, click Jobs
+2. Click Submit job.
+3. For Job type, select PySpark and for Main python file, specify the location of the Python file you uploaded to your bucket.
+   <bucket-name> is likely the Project Id when you can find by clicking on the Project Id dropdown in the top navigation menu
+   
+   gs://<bucket-name>/train_and_apply.py
+   
+ 4. Click Submit
+ 
+ 5. Go to Products_DB and loop up for the last instructions.
+  
+
